@@ -43,38 +43,43 @@
 
 namespace RobotLocalization
 {
-  NavSatTransform::NavSatTransform(ros::NodeHandle nh, ros::NodeHandle nh_priv) :
-    broadcast_cartesian_transform_(false),
-    broadcast_cartesian_transform_as_parent_frame_(false),
-    gps_updated_(false),
-    has_transform_gps_(false),
-    has_transform_imu_(false),
-    has_transform_odom_(false),
-    odom_updated_(false),
-    publish_gps_(false),
-    transform_good_(false),
-    use_manual_datum_(false),
-    use_odometry_yaw_(false),
-    use_local_cartesian_(false),
-    zero_altitude_(false),
-    magnetic_declination_(0.0),
-    yaw_offset_(0.0),
-    base_link_frame_id_("base_link"),
-    gps_frame_id_(""),
-    utm_zone_(0),
-    world_frame_id_("odom"),
-    transform_timeout_(ros::Duration(0)),
-    tf_listener_(tf_buffer_)
+  NavSatTransform::NavSatTransform(ros::NodeHandle nh, ros::NodeHandle nh_priv)
+      : broadcast_cartesian_transform_(false),
+        broadcast_cartesian_transform_as_parent_frame_(false),
+        gps_updated_(false),
+        has_transform_gps_(false),
+        has_transform_imu_(false),
+        has_transform_odom_(false),
+        odom_updated_(false),
+        publish_gps_(false),
+        transform_good_(false),
+        use_manual_datum_(false),
+        use_odometry_yaw_(false),
+        use_local_cartesian_(false),
+        zero_altitude_(false),
+        magnetic_declination_(0.0),
+        yaw_offset_(0.0),
+        base_link_frame_id_("base_link"),
+        gps_frame_id_(""),
+        utm_zone_(49),
+        world_frame_id_("odom"),
+        transform_timeout_(ros::Duration(0)),
+        tf_listener_(tf_buffer_)
   {
+    // 该代码等待系统时间变得有效，确保节点在启动时能够正确处理 ROS 时间。通常在仿真或离线情况下需要这样做
     ROS_INFO("Waiting for valid clock time...");
     ros::Time::waitForValid();
     ROS_INFO("Valid clock time received. Starting node.");
 
+    // 初始化两个协方差矩阵，用于存储最新的笛卡尔坐标和里程计数据的协方差信息。
     latest_cartesian_covariance_.resize(POSE_SIZE, POSE_SIZE);
     latest_odom_covariance_.resize(POSE_SIZE, POSE_SIZE);
 
+    // 更新频率
     double frequency;
+    // 启动延迟
     double delay = 0.0;
+    // 变换超时时间
     double transform_timeout = 0.0;
 
     // Load the parameters we need
@@ -105,13 +110,18 @@ namespace RobotLocalization
                "'broadcast_cartesian_transform_as_parent_frame' instead.");
     }
 
-    // Subscribe to the messages and services we need
-    datum_srv_ = nh.advertiseService("datum", &NavSatTransform::datumCallback, this);
+    ROS_WARN("======>>> XXXXX");
 
+    // Subscribe to the messages and services we need
+    // 处理 datum
+    datum_srv_ = nh.advertiseService("datum", &NavSatTransform::datumCallback, this);
+    // 坐标转换
     to_ll_srv_ = nh.advertiseService("toLL", &NavSatTransform::toLLCallback, this);
     from_ll_srv_ = nh.advertiseService("fromLL", &NavSatTransform::fromLLCallback, this);
+    // UTM 区域
     set_utm_zone_srv_ = nh.advertiseService("setUTMZone", &NavSatTransform::setUTMZoneCallback, this);
 
+    // 如果使用了手动 datum 并且配置了相关参数，代码会从参数服务器加载 datum 信息，包括纬度、经度和偏航角
     if (use_manual_datum_ && nh_priv.hasParam("datum"))
     {
       XmlRpc::XmlRpcValue datum_config;
@@ -132,7 +142,7 @@ namespace RobotLocalization
         if (datum_config.size() > 3)
         {
           ROS_WARN_STREAM("Deprecated datum parameter configuration detected. Only the first three parameters "
-              "(latitude, longitude, yaw) will be used. frame_ids will be derived from odometry and navsat inputs.");
+                          "(latitude, longitude, yaw) will be used. frame_ids will be derived from odometry and navsat inputs.");
         }
 
         std::ostringstream ostr;
@@ -164,13 +174,14 @@ namespace RobotLocalization
       }
       catch (XmlRpc::XmlRpcException &e)
       {
-        ROS_ERROR_STREAM("ERROR reading sensor config: " << e.getMessage() <<
-                         " for process_noise_covariance (type: " << datum_config.getType() << ")");
+        ROS_ERROR_STREAM("ERROR reading sensor config: " << e.getMessage() << " for process_noise_covariance (type: " << datum_config.getType() << ")");
       }
     }
 
+    ROS_WARN("======>>> YYYYY");
+
     odom_sub_ = nh.subscribe("odometry/filtered", 1, &NavSatTransform::odomCallback, this);
-    gps_sub_  = nh.subscribe("gps/fix", 1, &NavSatTransform::gpsFixCallback, this);
+    gps_sub_ = nh.subscribe("gps/fix", 1, &NavSatTransform::gpsFixCallback, this);
 
     if (!use_odometry_yaw_ && !use_manual_datum_)
     {
@@ -189,15 +200,15 @@ namespace RobotLocalization
     ros::Duration start_delay(delay);
     start_delay.sleep();
 
-    periodicUpdateTimer_ = nh.createTimer(ros::Duration(1./frequency), &NavSatTransform::periodicUpdate, this);
+    periodicUpdateTimer_ = nh.createTimer(ros::Duration(1. / frequency), &NavSatTransform::periodicUpdate, this);
   }
 
   NavSatTransform::~NavSatTransform()
   {
   }
 
-//  void NavSatTransform::run()
-  void NavSatTransform::periodicUpdate(const ros::TimerEvent& event)
+  //  void NavSatTransform::run()
+  void NavSatTransform::periodicUpdate(const ros::TimerEvent &event)
   {
     if (!transform_good_)
     {
@@ -206,11 +217,13 @@ namespace RobotLocalization
       if (transform_good_ && !use_odometry_yaw_ && !use_manual_datum_)
       {
         // Once we have the transform, we don't need the IMU
+        // 如果已经计算出转换且不使用里程计的 yaw 和手动基准，则关闭 IMU 订阅
         imu_sub_.shutdown();
       }
     }
     else
     {
+      // 准备并发布转换后的 GPS 里程计数据
       nav_msgs::Odometry gps_odom;
       if (prepareGpsOdometry(gps_odom))
       {
@@ -230,9 +243,16 @@ namespace RobotLocalization
 
   void NavSatTransform::computeTransform()
   {
-    // Only do this if:
-    // 1. We haven't computed the odom_frame->cartesian_frame transform before
-    // 2. We've received the data we need
+    // Only do this if: 只有当以下条件全部满足时，才会计算 odom_frame->cartesian_frame 的变换
+    // 1. 变换尚未计算完成 (transform_good_ 为 false)
+    // 2. 已经收到里程计数据 (has_transform_odom_ 为 true)
+    // 3. 已经收到 GPS 数据 (has_transform_gps_ 为 true)
+    // 4. 已经收到 IMU 数据 (has_transform_imu_ 为 true)
+    ROS_WARN_STREAM("======>>> Entered computeTransform");
+    ROS_WARN_STREAM("has_transform_odom_: " << has_transform_odom_);
+    ROS_WARN_STREAM("has_transform_gps_: " << has_transform_gps_);
+    ROS_WARN_STREAM("has_transform_imu_: " << has_transform_imu_);
+    ROS_WARN_STREAM("transform_good_: " << transform_good_);
     if (!transform_good_ &&
         has_transform_odom_ &&
         has_transform_gps_ &&
@@ -240,6 +260,8 @@ namespace RobotLocalization
     {
       // The cartesian pose we have is given at the location of the GPS sensor on the robot. We need to get the
       // cartesian pose of the robot's origin.
+      // 如果没有使用手动设置的基准 (use_manual_datum_ 为 false)，
+      // 则将 GPS 传感器位置的笛卡尔坐标变换到机器人的原点。
       tf2::Transform transform_cartesian_pose_corrected;
       if (!use_manual_datum_)
       {
@@ -249,7 +271,7 @@ namespace RobotLocalization
       {
         transform_cartesian_pose_corrected = transform_cartesian_pose_;
       }
-
+      // 获取 IMU 当前的 RPY (滚转、俯仰、偏航) 值，只需要原始偏航值。
       // Get the IMU's current RPY values. Need the raw values (for yaw, anyway).
       tf2::Matrix3x3 mat(transform_orientation_);
 
@@ -257,6 +279,7 @@ namespace RobotLocalization
       double imu_roll;
       double imu_pitch;
       double imu_yaw;
+      // 转换为 RPY
       mat.getRPY(imu_roll, imu_pitch, imu_yaw);
 
       /* The IMU's heading was likely originally reported w.r.t. magnetic north.
@@ -279,33 +302,36 @@ namespace RobotLocalization
        *      we need to add meridian convergence angle when using UTM. This value will be
        *      0.0 when use_local_cartesian is TRUE.
        */
+      ROS_WARN_STREAM("Original IMU yaw: " << imu_yaw);
+      // 矫正偏航角以考虑磁偏角、用户指定的偏航偏移和 UTM 子午线收敛角。
       imu_yaw += (magnetic_declination_ + yaw_offset_ + utm_meridian_convergence_);
-
-      ROS_INFO_STREAM("Corrected for magnetic declination of " << std::fixed << magnetic_declination_ <<
-                      ", user-specified offset of " << yaw_offset_ <<
-                      " and meridian convergence of " << utm_meridian_convergence_ << "." <<
-                      " Transform heading factor is now " << imu_yaw);
+      ROS_WARN_STREAM("Corrected IMU yaw: " << imu_yaw);
+      ROS_INFO_STREAM("Corrected for magnetic declination of " << std::fixed << magnetic_declination_ << ", user-specified offset of " << yaw_offset_ << " and meridian convergence of " << utm_meridian_convergence_ << "." << " Transform heading factor is now " << imu_yaw);
 
       // Convert to tf-friendly structures
+      // 转换为 tf 友好的结构
       tf2::Quaternion imu_quat;
       imu_quat.setRPY(0.0, 0.0, imu_yaw);
 
       // The transform order will be orig_odom_pos * orig_cartesian_pos_inverse * cur_cartesian_pos.
       // Doing it this way will allow us to cope with having non-zero odometry position
       // when we get our first GPS message.
+      // 变换顺序将是：原始里程计位置 * 原始笛卡尔位置的逆 * 当前笛卡尔位置。
+      // 这样可以处理在首次接收到 GPS 消息时存在非零里程计位置的情况。
       tf2::Transform cartesian_pose_with_orientation;
       cartesian_pose_with_orientation.setOrigin(transform_cartesian_pose_corrected.getOrigin());
       cartesian_pose_with_orientation.setRotation(imu_quat);
 
       // Remove roll and pitch from odometry pose
       // Must be done because roll and pitch is removed from cartesian_pose_with_orientation
+      // 从里程计姿态中移除滚转和俯仰。
       double odom_roll, odom_pitch, odom_yaw;
       tf2::Matrix3x3(transform_world_pose_.getRotation()).getRPY(odom_roll, odom_pitch, odom_yaw);
       tf2::Quaternion odom_quat;
       odom_quat.setRPY(0.0, 0.0, odom_yaw);
       tf2::Transform transform_world_pose_yaw_only(transform_world_pose_);
       transform_world_pose_yaw_only.setRotation(odom_quat);
-
+      // 计算从世界坐标系到笛卡尔坐标系的变换。
       cartesian_world_transform_.mult(transform_world_pose_yaw_only, cartesian_pose_with_orientation.inverse());
 
       cartesian_world_trans_inverse_ = cartesian_world_transform_.inverse();
@@ -313,30 +339,27 @@ namespace RobotLocalization
       ROS_INFO_STREAM("Transform world frame pose is: " << transform_world_pose_);
       ROS_INFO_STREAM("World frame->cartesian transform is " << cartesian_world_transform_);
 
+      // 标记变换已完成
       transform_good_ = true;
 
       // Send out the (static) Cartesian transform in case anyone else would like to use it.
+      // 如果配置了广播笛卡尔变换，则发送静态变换。
       if (broadcast_cartesian_transform_)
       {
         geometry_msgs::TransformStamped cartesian_transform_stamped;
         cartesian_transform_stamped.header.stamp = ros::Time::now();
         std::string cartesian_frame_id = (use_local_cartesian_ ? "local_enu" : "utm");
-        cartesian_transform_stamped.header.frame_id = (broadcast_cartesian_transform_as_parent_frame_ ?
-                                                       cartesian_frame_id : world_frame_id_);
-        cartesian_transform_stamped.child_frame_id = (broadcast_cartesian_transform_as_parent_frame_ ?
-                                                      world_frame_id_ : cartesian_frame_id);
-        cartesian_transform_stamped.transform = (broadcast_cartesian_transform_as_parent_frame_ ?
-                                             tf2::toMsg(cartesian_world_trans_inverse_) :
-                                             tf2::toMsg(cartesian_world_transform_));
-        cartesian_transform_stamped.transform.translation.z = (zero_altitude_ ?
-                                                           0.0 : cartesian_transform_stamped.transform.translation.z);
+        cartesian_transform_stamped.header.frame_id = (broadcast_cartesian_transform_as_parent_frame_ ? cartesian_frame_id : world_frame_id_);
+        cartesian_transform_stamped.child_frame_id = (broadcast_cartesian_transform_as_parent_frame_ ? world_frame_id_ : cartesian_frame_id);
+        cartesian_transform_stamped.transform = (broadcast_cartesian_transform_as_parent_frame_ ? tf2::toMsg(cartesian_world_trans_inverse_) : tf2::toMsg(cartesian_world_transform_));
+        cartesian_transform_stamped.transform.translation.z = (zero_altitude_ ? 0.0 : cartesian_transform_stamped.transform.translation.z);
         cartesian_broadcaster_.sendTransform(cartesian_transform_stamped);
       }
     }
   }
 
-  bool NavSatTransform::datumCallback(robot_localization::SetDatum::Request& request,
-                                      robot_localization::SetDatum::Response&)
+  bool NavSatTransform::datumCallback(robot_localization::SetDatum::Request &request,
+                                      robot_localization::SetDatum::Response &)
   {
     // If we get a service call with a manual datum, even if we already computed the transform using the robot's
     // initial pose, then we want to assume that we are using a datum from now on, and we want other methods to
@@ -379,8 +402,8 @@ namespace RobotLocalization
     return true;
   }
 
-  bool NavSatTransform::toLLCallback(robot_localization::ToLL::Request& request,
-                                     robot_localization::ToLL::Response& response)
+  bool NavSatTransform::toLLCallback(robot_localization::ToLL::Request &request,
+                                     robot_localization::ToLL::Response &response)
   {
     if (!transform_good_)
     {
@@ -394,8 +417,8 @@ namespace RobotLocalization
     return true;
   }
 
-  bool NavSatTransform::fromLLCallback(robot_localization::FromLL::Request& request,
-                                       robot_localization::FromLL::Response& response)
+  bool NavSatTransform::fromLLCallback(robot_localization::FromLL::Request &request,
+                                       robot_localization::FromLL::Response &response)
   {
     double altitude = request.ll_point.altitude;
     double longitude = request.ll_point.longitude;
@@ -419,7 +442,7 @@ namespace RobotLocalization
       {
         GeographicLib::UTMUPS::Forward(latitude, longitude, zone_tmp, nortp_tmp, cartesian_x, cartesian_y, utm_zone_);
       }
-      catch (const GeographicLib::GeographicErr& e)
+      catch (const GeographicLib::GeographicErr &e)
       {
         ROS_ERROR_STREAM_THROTTLE(1.0, e.what());
         return false;
@@ -441,8 +464,8 @@ namespace RobotLocalization
     return true;
   }
 
-  bool NavSatTransform::setUTMZoneCallback(robot_localization::SetUTMZone::Request& request,
-                                           robot_localization::SetUTMZone::Response& response)
+  bool NavSatTransform::setUTMZoneCallback(robot_localization::SetUTMZone::Request &request,
+                                           robot_localization::SetUTMZone::Response &response)
   {
     double x_unused;
     double y_unused;
@@ -452,7 +475,7 @@ namespace RobotLocalization
     return true;
   }
 
-  nav_msgs::Odometry NavSatTransform::cartesianToMap(const tf2::Transform& cartesian_pose) const
+  nav_msgs::Odometry NavSatTransform::cartesianToMap(const tf2::Transform &cartesian_pose) const
   {
     nav_msgs::Odometry gps_odom{};
 
@@ -472,7 +495,7 @@ namespace RobotLocalization
     return gps_odom;
   }
 
-  void NavSatTransform::mapToLL(const tf2::Vector3& point, double& latitude, double& longitude, double& altitude) const
+  void NavSatTransform::mapToLL(const tf2::Vector3 &point, double &latitude, double &longitude, double &altitude) const
   {
     tf2::Transform odom_as_cartesian{};
 
@@ -548,8 +571,7 @@ namespace RobotLocalization
     {
       if (gps_frame_id_ != "")
       {
-        ROS_WARN_STREAM_ONCE("Unable to obtain " << base_link_frame_id_ << "->" << gps_frame_id_ <<
-          " transform. Will assume navsat device is mounted at robot's origin");
+        ROS_WARN_STREAM_ONCE("Unable to obtain " << base_link_frame_id_ << "->" << gps_frame_id_ << " transform. Will assume navsat device is mounted at robot's origin");
       }
 
       robot_cartesian_pose = gps_cartesian_pose;
@@ -591,28 +613,28 @@ namespace RobotLocalization
       }
       else
       {
-        ROS_WARN_STREAM_THROTTLE(5.0, "Could not obtain " << world_frame_id_ << "->" << base_link_frame_id_ <<
-          " transform. Will not remove offset of navsat device from robot's origin.");
+        ROS_WARN_STREAM_THROTTLE(5.0, "Could not obtain " << world_frame_id_ << "->" << base_link_frame_id_ << " transform. Will not remove offset of navsat device from robot's origin.");
       }
     }
     else
     {
-      ROS_WARN_STREAM_THROTTLE(5.0, "Could not obtain " << base_link_frame_id_ << "->" << gps_frame_id_ <<
-        " transform. Will not remove offset of navsat device from robot's origin.");
+      ROS_WARN_STREAM_THROTTLE(5.0, "Could not obtain " << base_link_frame_id_ << "->" << gps_frame_id_ << " transform. Will not remove offset of navsat device from robot's origin.");
     }
   }
 
-  void NavSatTransform::gpsFixCallback(const sensor_msgs::NavSatFixConstPtr& msg)
+  void NavSatTransform::gpsFixCallback(const sensor_msgs::NavSatFixConstPtr &msg)
   {
+    ROS_WARN("======>>> Received GPS fix callback.");
     gps_frame_id_ = msg->header.frame_id;
-
+    // 获取 GPS 传感器的 frame_id
     if (gps_frame_id_.empty())
     {
       ROS_WARN_STREAM_ONCE("NavSatFix message has empty frame_id. Will assume navsat device is mounted at robot's "
-        "origin.");
+                           "origin.");
     }
 
     // Make sure the GPS data is usable
+    // 检查 GPS 数据是否有效
     bool good_gps = (msg->status.status != sensor_msgs::NavSatStatus::STATUS_NO_FIX &&
                      !std::isnan(msg->altitude) &&
                      !std::isnan(msg->latitude) &&
@@ -622,6 +644,7 @@ namespace RobotLocalization
     {
       // If we haven't computed the transform yet, then
       // store this message as the initial GPS data to use
+      // 如果尚未计算转换，并且未使用手动 datum，则使用当前 GPS 数据设置转换
       if (!transform_good_ && !use_manual_datum_)
       {
         setTransformGps(msg);
@@ -630,6 +653,8 @@ namespace RobotLocalization
       double cartesian_x = 0.0;
       double cartesian_y = 0.0;
       double cartesian_z = 0.0;
+
+      //
       if (use_local_cartesian_)
       {
         gps_local_cartesian_.Forward(msg->latitude, msg->longitude, msg->altitude,
@@ -637,24 +662,26 @@ namespace RobotLocalization
       }
       else
       {
-        // Transform to UTM using the fixed utm_zone_
+        // Transform to UTM using the fixed utm_zone
         int zone_tmp;
         bool northp_tmp;
         try
         {
           GeographicLib::UTMUPS::Forward(msg->latitude, msg->longitude,
-                                        zone_tmp, northp_tmp, cartesian_x, cartesian_y, utm_zone_);
+                                         zone_tmp, northp_tmp, cartesian_x, cartesian_y, utm_zone_);
         }
-        catch (const GeographicLib::GeographicErr& e)
+        catch (const GeographicLib::GeographicErr &e)
         {
           ROS_ERROR_STREAM_THROTTLE(1.0, e.what());
           return;
         }
       }
+      // 将转换后的笛卡尔坐标存储为最新位置
       latest_cartesian_pose_.setOrigin(tf2::Vector3(cartesian_x, cartesian_y, msg->altitude));
       latest_cartesian_covariance_.setZero();
-
+      ROS_WARN_STREAM("Converted Cartesian coordinates: x = " << cartesian_x << ", y = " << cartesian_y << ", z = " << msg->altitude);
       // Copy the measurement's covariance matrix so that we can rotate it later
+      // 复制测量的协方差矩阵，以便后续进行旋转
       for (size_t i = 0; i < POSITION_SIZE; i++)
       {
         for (size_t j = 0; j < POSITION_SIZE; j++)
@@ -668,10 +695,12 @@ namespace RobotLocalization
     }
   }
 
-  void NavSatTransform::imuCallback(const sensor_msgs::ImuConstPtr& msg)
+  void NavSatTransform::imuCallback(const sensor_msgs::ImuConstPtr &msg)
   {
     // We need the baseLinkFrameId_ from the odometry message, so
     // we need to wait until we receive it.
+    ROS_WARN_STREAM("======>>> Received Imu callback. has_transform_odom_: " << (has_transform_odom_ ? "true" : "false"));
+    // 如果已经收到了里程计数据，说明可以进行 IMU 数据的处理
     if (has_transform_odom_)
     {
       /* This method only gets called if we don't yet have the
@@ -681,7 +710,9 @@ namespace RobotLocalization
       tf2::fromMsg(msg->orientation, transform_orientation_);
 
       // Correct for the IMU's orientation w.r.t. base_link
+      // 将 IMU 的方向与 base_link 的方向进行校正
       tf2::Transform target_frame_trans;
+      // 查找从 base_link 到 IMU 帧的变换
       bool can_transform = RosFilterUtilities::lookupTransformSafe(tf_buffer_,
                                                                    base_link_frame_id_,
                                                                    msg->header.frame_id,
@@ -715,25 +746,30 @@ namespace RobotLocalization
         rpy_angles = mat * rpy_angles;
         transform_orientation_.setRPY(rpy_angles.getX(), rpy_angles.getY(), rpy_angles.getZ());
 
-        ROS_DEBUG_STREAM("Initial corrected orientation roll, pitch, yaw is (" <<
-                         rpy_angles.getX() << ", " << rpy_angles.getY() << ", " << rpy_angles.getZ() << ")");
+        ROS_DEBUG_STREAM("Initial corrected orientation roll, pitch, yaw is (" << rpy_angles.getX() << ", " << rpy_angles.getY() << ", " << rpy_angles.getZ() << ")");
 
         has_transform_imu_ = true;
       }
     }
   }
 
-  void NavSatTransform::odomCallback(const nav_msgs::OdometryConstPtr& msg)
+  // 处理接收到的里程计数据
+  void NavSatTransform::odomCallback(const nav_msgs::OdometryConstPtr &msg)
   {
+    // 分别获取里程计消息中的世界坐标系和基座坐标系
     world_frame_id_ = msg->header.frame_id;
     base_link_frame_id_ = msg->child_frame_id;
 
+    // 如果系统还没有确定好变换 并且未使用手动基准
     if (!transform_good_ && !use_manual_datum_)
     {
+      // 设置当前里程计数据为基准
       setTransformOdometry(msg);
     }
 
+    // 将里程计消息中的位姿 转换为 tf2 形式 这表示机器人在世界坐标系下的最新位姿
     tf2::fromMsg(msg->pose.pose, latest_world_pose_);
+    // 将里程计消息中的协方差矩阵转换为内部使用的格式，并存储到 latest_odom_covariance_ 变量中。协方差矩阵表示位姿估计的置信度
     latest_odom_covariance_.setZero();
     for (size_t row = 0; row < POSE_SIZE; ++row)
     {
@@ -742,11 +778,10 @@ namespace RobotLocalization
         latest_odom_covariance_(row, col) = msg->pose.covariance[row * POSE_SIZE + col];
       }
     }
-
+    // 更新里程计的最新时间戳和标志位，表明里程计数据已经更新
     odom_update_time_ = msg->header.stamp;
     odom_updated_ = true;
   }
-
 
   bool NavSatTransform::prepareFilteredGps(sensor_msgs::NavSatFix &filtered_gps)
   {
@@ -766,9 +801,9 @@ namespace RobotLocalization
         rot_6d(rInd, 0) = rot.getRow(rInd).getX();
         rot_6d(rInd, 1) = rot.getRow(rInd).getY();
         rot_6d(rInd, 2) = rot.getRow(rInd).getZ();
-        rot_6d(rInd+POSITION_SIZE, 3) = rot.getRow(rInd).getX();
-        rot_6d(rInd+POSITION_SIZE, 4) = rot.getRow(rInd).getY();
-        rot_6d(rInd+POSITION_SIZE, 5) = rot.getRow(rInd).getZ();
+        rot_6d(rInd + POSITION_SIZE, 3) = rot.getRow(rInd).getX();
+        rot_6d(rInd + POSITION_SIZE, 4) = rot.getRow(rInd).getY();
+        rot_6d(rInd + POSITION_SIZE, 5) = rot.getRow(rInd).getZ();
       }
 
       // Rotate the covariance
@@ -799,18 +834,23 @@ namespace RobotLocalization
   bool NavSatTransform::prepareGpsOdometry(nav_msgs::Odometry &gps_odom)
   {
     bool new_data = false;
-
+    // 1. 确保已经计算出 GPS 到世界坐标系的转换
+    // 2. 检查是否有新的 GPS 数据
+    // 3. 确保有新的里程计数据（如果使用里程计）
+    ROS_WARN_STREAM("prepareGpsOdometry ==>> transform_good_: " << transform_good_);
     if (transform_good_ && gps_updated_ && odom_updated_)
     {
+      // 将最新的 GPS 笛卡尔坐标转换为世界坐标（如 UTM 或局部 ENU），以生成里程计数据
       gps_odom = cartesianToMap(latest_cartesian_pose_);
 
       tf2::Transform transformed_cartesian_gps;
       tf2::fromMsg(gps_odom.pose.pose, transformed_cartesian_gps);
 
       // Want the pose of the vehicle origin, not the GPS
+      // 获取车辆原点的位姿，而不是 GPS 位姿
       tf2::Transform transformed_cartesian_robot;
       getRobotOriginWorldPose(transformed_cartesian_gps, transformed_cartesian_robot, gps_odom.header.stamp);
-
+      // 计算旋转矩阵，用于将协方差矩阵旋转到世界坐标系
       // Rotate the covariance as well
       tf2::Matrix3x3 rot(cartesian_world_transform_.getRotation());
       Eigen::MatrixXd rot_6d(POSE_SIZE, POSE_SIZE);
@@ -821,11 +861,11 @@ namespace RobotLocalization
         rot_6d(rInd, 0) = rot.getRow(rInd).getX();
         rot_6d(rInd, 1) = rot.getRow(rInd).getY();
         rot_6d(rInd, 2) = rot.getRow(rInd).getZ();
-        rot_6d(rInd+POSITION_SIZE, 3) = rot.getRow(rInd).getX();
-        rot_6d(rInd+POSITION_SIZE, 4) = rot.getRow(rInd).getY();
-        rot_6d(rInd+POSITION_SIZE, 5) = rot.getRow(rInd).getZ();
+        rot_6d(rInd + POSITION_SIZE, 3) = rot.getRow(rInd).getX();
+        rot_6d(rInd + POSITION_SIZE, 4) = rot.getRow(rInd).getY();
+        rot_6d(rInd + POSITION_SIZE, 5) = rot.getRow(rInd).getZ();
       }
-
+      // 这一步将 GPS 数据的协方差矩阵变换到世界坐标系，以便准确融合数据
       // Rotate the covariance
       latest_cartesian_covariance_ = rot_6d * latest_cartesian_covariance_.eval() * rot_6d.transpose();
 
@@ -841,7 +881,7 @@ namespace RobotLocalization
           gps_odom.pose.covariance[POSE_SIZE * i + j] = latest_cartesian_covariance_(i, j);
         }
       }
-
+      // 标记 GPS 数据已被使用，防止重复处理
       // Mark this GPS as used
       gps_updated_ = false;
       new_data = true;
@@ -850,42 +890,49 @@ namespace RobotLocalization
     return new_data;
   }
 
-  void NavSatTransform::setTransformGps(const sensor_msgs::NavSatFixConstPtr& msg)
+  void NavSatTransform::setTransformGps(const sensor_msgs::NavSatFixConstPtr &msg)
   {
+    // 如果使用局部笛卡尔坐标系进行转换
     double cartesian_x = 0;
     double cartesian_y = 0;
     double cartesian_z = 0;
+    // 如果使用局部笛卡尔坐标系进行转换
     if (use_local_cartesian_)
     {
       const double hae_altitude = 0.0;
       gps_local_cartesian_.Reset(msg->latitude, msg->longitude, hae_altitude);
+      // 将经纬度和高度转换为局部笛卡尔坐标
       gps_local_cartesian_.Forward(msg->latitude, msg->longitude, msg->altitude, cartesian_x, cartesian_y, cartesian_z);
-
+      // 当使用局部笛卡尔坐标时，子午线收敛度对 UTM 来说无意义，因此设置为 0.0
       // UTM meridian convergence is not meaningful when using local cartesian, so set it to 0.0
       utm_meridian_convergence_ = 0.0;
     }
     else
     {
+      // 临时变量，用于保存缩放因子（这里未使用）
       double k_tmp;
+      // 子午线收敛度（单位为度）
       double utm_meridian_convergence_degrees;
+      // 将经纬度转换为 UTM 坐标
       GeographicLib::UTMUPS::Forward(msg->latitude, msg->longitude, utm_zone_, northp_,
                                      cartesian_x, cartesian_y, utm_meridian_convergence_degrees, k_tmp);
+      // 将子午线收敛度从度转换为弧度
       utm_meridian_convergence_ = utm_meridian_convergence_degrees * NavsatConversions::RADIANS_PER_DEGREE;
     }
 
-    ROS_INFO_STREAM("Datum (latitude, longitude, altitude) is (" << std::fixed << msg->latitude << ", " <<
-                    msg->longitude << ", " << msg->altitude << ")");
-    ROS_INFO_STREAM("Datum " << ((use_local_cartesian_)? "Local Cartesian" : "UTM") <<
-                    " coordinate is (" << std::fixed << cartesian_x << ", " << cartesian_y << ") zone " << utm_zone_);
+    ROS_WARN_STREAM("Datum (latitude, longitude, altitude) is (" << std::fixed << msg->latitude << ", " << msg->longitude << ", " << msg->altitude << ")");
+    ROS_WARN_STREAM("Datum " << ((use_local_cartesian_) ? "Local Cartesian" : "UTM") << " coordinate is (" << std::fixed << cartesian_x << ", " << cartesian_y << ") zone " << utm_zone_);
 
     transform_cartesian_pose_.setOrigin(tf2::Vector3(cartesian_x, cartesian_y, msg->altitude));
     transform_cartesian_pose_.setRotation(tf2::Quaternion::getIdentity());
     has_transform_gps_ = true;
   }
 
-  void NavSatTransform::setTransformOdometry(const nav_msgs::OdometryConstPtr& msg)
+  void NavSatTransform::setTransformOdometry(const nav_msgs::OdometryConstPtr &msg)
   {
+    // 这段代码将里程计的姿态（pose）转换成 tf2::Transform 格式，并存储在 transform_world_pose_ 中，表示世界坐标系的初始位置
     tf2::fromMsg(msg->pose.pose, transform_world_pose_);
+    // 表示已经接收到有效的里程计数据
     has_transform_odom_ = true;
 
     ROS_INFO_STREAM_ONCE("Initial odometry pose is " << transform_world_pose_);
@@ -896,6 +943,7 @@ namespace RobotLocalization
     // Cartesian->world_frame transform.
     if (!transform_good_ && use_odometry_yaw_ && !use_manual_datum_)
     {
+      // 创建一个 IMU 消息，使用里程计的姿态作为其方向
       sensor_msgs::Imu *imu = new sensor_msgs::Imu();
       imu->orientation = msg->pose.pose.orientation;
       imu->header.frame_id = msg->child_frame_id;
@@ -905,4 +953,4 @@ namespace RobotLocalization
     }
   }
 
-}  // namespace RobotLocalization
+} // namespace RobotLocalization

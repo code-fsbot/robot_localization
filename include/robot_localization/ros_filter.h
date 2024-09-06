@@ -75,37 +75,37 @@
 namespace RobotLocalization
 {
 
-struct CallbackData
-{
-  CallbackData(const std::string &topicName,
-               const std::vector<int> &updateVector,
-               const int updateSum,
-               const bool differential,
-               const bool relative,
-               const double rejectionThreshold) :
-    topicName_(topicName),
-    updateVector_(updateVector),
-    updateSum_(updateSum),
-    differential_(differential),
-    relative_(relative),
-    rejectionThreshold_(rejectionThreshold)
+  struct CallbackData
   {
-  }
+    CallbackData(const std::string &topicName,
+                 const std::vector<int> &updateVector,
+                 const int updateSum,
+                 const bool differential,
+                 const bool relative,
+                 const double rejectionThreshold) : topicName_(topicName),
+                                                    updateVector_(updateVector),
+                                                    updateSum_(updateSum),
+                                                    differential_(differential),
+                                                    relative_(relative),
+                                                    rejectionThreshold_(rejectionThreshold)
+    {
+    }
 
-  std::string topicName_;
-  std::vector<int> updateVector_;
-  int updateSum_;
-  bool differential_;
-  bool relative_;
-  double rejectionThreshold_;
-};
+    std::string topicName_;
+    std::vector<int> updateVector_;
+    int updateSum_;
+    bool differential_;
+    bool relative_;
+    double rejectionThreshold_;
+  };
 
-typedef std::priority_queue<MeasurementPtr, std::vector<MeasurementPtr>, Measurement> MeasurementQueue;
-typedef std::deque<MeasurementPtr> MeasurementHistoryDeque;
-typedef std::deque<FilterStatePtr> FilterStateHistoryDeque;
+  typedef std::priority_queue<MeasurementPtr, std::vector<MeasurementPtr>, Measurement> MeasurementQueue;
+  typedef std::deque<MeasurementPtr> MeasurementHistoryDeque;
+  typedef std::deque<FilterStatePtr> FilterStateHistoryDeque;
 
-template<class T> class RosFilter
-{
+  template <class T>
+  class RosFilter
+  {
   public:
     //! @brief Constructor
     //!
@@ -130,7 +130,7 @@ template<class T> class RosFilter
     //!
     ~RosFilter();
 
-    //! @brief Initialize filter
+    //! @brief Initialize filter 初始化函数
     //
     void initialize();
 
@@ -142,8 +142,8 @@ template<class T> class RosFilter
     //! @param[in] request - The state requested, on (True) or off (False)
     //! @param[out] response - status if upon success
     //! @return boolean true if successful, false if not
-    bool toggleFilterProcessingCallback(robot_localization::ToggleFilterProcessing::Request&,
-                                        robot_localization::ToggleFilterProcessing::Response&);
+    bool toggleFilterProcessingCallback(robot_localization::ToggleFilterProcessing::Request &,
+                                        robot_localization::ToggleFilterProcessing::Response &);
 
     //! @brief Callback method for receiving all acceleration (IMU) messages
     //! @param[in] msg - The ROS IMU message to take in.
@@ -216,8 +216,8 @@ template<class T> class RosFilter
     //! passed each on to its respective callback.
     //!
     void imuCallback(const sensor_msgs::Imu::ConstPtr &msg, const std::string &topicName,
-      const CallbackData &poseCallbackData, const CallbackData &twistCallbackData,
-      const CallbackData &accelCallbackData);
+                     const CallbackData &poseCallbackData, const CallbackData &twistCallbackData,
+                     const CallbackData &accelCallbackData);
 
     //! @brief Processes all measurements in the measurement queue, in temporal order
     //!
@@ -239,7 +239,7 @@ template<class T> class RosFilter
     //! respective callbacks
     //!
     void odometryCallback(const nav_msgs::Odometry::ConstPtr &msg, const std::string &topicName,
-      const CallbackData &poseCallbackData, const CallbackData &twistCallbackData);
+                          const CallbackData &poseCallbackData, const CallbackData &twistCallbackData);
 
     //! @brief Callback method for receiving all pose messages
     //! @param[in] msg - The ROS stamped pose with covariance message to take in
@@ -261,15 +261,15 @@ template<class T> class RosFilter
     //!
     //! @param[in] request - Custom service request with pose information
     //! @return true if successful, false if not
-    bool setPoseSrvCallback(robot_localization::SetPose::Request& request,
-                            robot_localization::SetPose::Response&);
+    bool setPoseSrvCallback(robot_localization::SetPose::Request &request,
+                            robot_localization::SetPose::Response &);
 
     //! @brief Service callback for manually enable the filter
     //! @param[in] request - N/A
     //! @param[out] response - N/A
     //! @return boolean true if successful, false if not
-    bool enableFilterSrvCallback(std_srvs::Empty::Request&,
-                                 std_srvs::Empty::Response&);
+    bool enableFilterSrvCallback(std_srvs::Empty::Request &,
+                                 std_srvs::Empty::Response &);
 
     //! @brief Callback method for receiving all twist messages
     //! @param[in] msg - The ROS stamped twist with covariance message to take in.
@@ -418,10 +418,9 @@ template<class T> class RosFilter
                       Eigen::VectorXd &measurement,
                       Eigen::MatrixXd &measurementCovariance);
 
-
     //! @brief callback function which is called for periodic updates
     //!
-    void periodicUpdate(const ros::TimerEvent& event);
+    void periodicUpdate(const ros::TimerEvent &event);
 
     //! @brief Start the Filter disabled at startup
     //!
@@ -719,8 +718,8 @@ template<class T> class RosFilter
     //! @brief optional signaling diagnostic frequency
     //!
     std::unique_ptr<diagnostic_updater::HeaderlessTopicDiagnostic> freqDiag_;
-};
+  };
 
-}  // namespace RobotLocalization
+} // namespace RobotLocalization
 
-#endif  // ROBOT_LOCALIZATION_ROS_FILTER_H
+#endif // ROBOT_LOCALIZATION_ROS_FILTER_H

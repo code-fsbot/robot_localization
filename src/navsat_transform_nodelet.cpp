@@ -30,34 +30,40 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "robot_localization/navsat_transform.h"
+/**
+ * Nodelet 是一种在同一进程中加载多个节点的机制，减少进程间通信的开销
+ */
 
+#include "robot_localization/navsat_transform.h"
+// 用于实现 ROS Nodelet 和插件机制。
 #include <nodelet/nodelet.h>
 #include <pluginlib/class_list_macros.h>
 #include <ros/ros.h>
-
+// 引入 C++ 的智能指针库，用于管理资源
 #include <memory>
 
 namespace RobotLocalization
 {
 
-class NavSatTransformNodelet : public nodelet::Nodelet
-{
-private:
-  std::unique_ptr<RobotLocalization::NavSatTransform> trans;
-
-public:
-  virtual void onInit()
+  class NavSatTransformNodelet : public nodelet::Nodelet
   {
-    NODELET_DEBUG("Initializing nodelet...");
+  private:
+    // 使用智能指针管理 NavSatTransform 对象的生命周期
+    std::unique_ptr<RobotLocalization::NavSatTransform> trans;
 
-    ros::NodeHandle nh      = getNodeHandle();
-    ros::NodeHandle nh_priv = getPrivateNodeHandle();
+  public:
+    // Nodelet 的初始化函数，在 Nodelet 加载时调用
+    virtual void onInit()
+    {
+      NODELET_DEBUG("Initializing nodelet...");
+      // 获取公有和私有的 NodeHandle。
+      ros::NodeHandle nh = getNodeHandle();
+      ros::NodeHandle nh_priv = getPrivateNodeHandle();
+      // 创建并初始化 NavSatTransform 对象，将其存储在智能指针 trans 中
+      trans = std::make_unique<RobotLocalization::NavSatTransform>(nh, nh_priv);
+    }
+  };
 
-    trans = std::make_unique<RobotLocalization::NavSatTransform>(nh, nh_priv);
-  }
-};
-
-}  // namespace RobotLocalization
+} // namespace RobotLocalization
 
 PLUGINLIB_EXPORT_CLASS(RobotLocalization::NavSatTransformNodelet, nodelet::Nodelet);

@@ -1,0 +1,24 @@
+<launch>
+
+    <rosparam file="$(find robot_localization)/params/dual_ekf_navsat_example_kitti.yaml" command="load" />
+
+    <node pkg="tf" type="static_transform_publisher" name="static_transform_publisher" 
+	  args="0 0 0 0 0 0 1  /base_link /imu_link 10" />
+
+    <!-- EKF ODOM-->
+    <node pkg="robot_localization" type="ekf_localization_node" name="ekf_odom" respawn="true">
+    </node>
+
+    <!-- EKF GPS-->
+    <node pkg="robot_localization" type="ekf_localization_node" name="ekf_gps" respawn="true">
+        <remap from="odometry/filtered" to="odom" />
+    </node>
+
+    <!-- Navsat -->
+    <node pkg="robot_localization" type="navsat_transform_node" name="navsat" respawn="true">
+        <remap from="imu/data"          to="imu_raw" />
+        <remap from="/gps/fix"           to="/fix" />
+        <remap from="odometry/filtered" to="odom" />
+    </node>
+
+</launch>

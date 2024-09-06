@@ -1,0 +1,13 @@
+<launch>
+
+  <node pkg="tf" type="static_transform_publisher" name="static_transform_publisher" 
+	args="0 0 0 0 0 0 1  /base_link /imu_link 10" />
+
+  <node pkg="robot_localization" type="navsat_transform_node" name="navsat_transform_node" clear_params="true">
+    <rosparam command="load" file="$(find robot_localization)/params/navsat_transform_template.yaml" />
+    
+      <remap from="imu/data" to="imu_raw"/>
+      <remap from="gps/fix" to="fix"/>
+     
+  </node>
+</launch>

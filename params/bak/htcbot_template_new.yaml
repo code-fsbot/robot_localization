@@ -1,0 +1,71 @@
+# data config
+# x,      y,      z       x-y-z 坐标系的坐标
+# roll,   pitch,  yaw     绕 x|y|z 轴的角度
+# vx,     vy,     vz,     沿 x|y|z 轴的速度
+# vroll,  vpitch, vyaw,   沿 x|y|z 轴的的角速度
+# ax,     ay,     az      沿 x|y|z 轴的加速度
+
+# 协方差 process_noise_covariance
+
+navsat:
+  frequency: 50
+  wait_for_datum: false
+  delay: 0.0
+  magnetic_declination_radians: 0
+  yaw_offset: 0
+  zero_altitude: true
+  broadcast_utm_transform: false
+  broadcast_utm_transform_as_parent_frame: false
+  publish_filtered_gps: false
+
+ekf_gps_odom:
+  publish_tf: true
+  map_frame: map
+  odom_frame: odom
+  base_link_frame: base_link
+  world_frame: odom
+
+  frequency: 50 # 频率（Hz）
+  sensor_timeout: 0.01 # 传感器数据的超时时间（s）
+  two_d_mode: false # 是否启用二维模式 忽略Z轴数据
+  # transform_time_offset: 0.0 # 时间偏移量
+  # transform_timeout: 0.0 # 变换的超时时间
+  # print_diagnostics: true # 是否输出诊断信息
+  # debug: false # 是否启用调试模式
+
+  imu0: imu_raw
+  imu0_config: [false, false, false,
+                false, false, false,
+                false, false, false,
+                false, false, true,
+                true,  true,  true]
+  # imu0_nodelay: false # 是否延迟发布
+  imu0_differential: false # 是否差分数据
+  # imu0_relative: true # 是否是为相对数据
+  imu0_remove_gravitational_acceleration: true # 是否去除重力加速度
+  imu0_queue_size: 50 #
+
+  # Odometry Navsat
+  odom0: odometry/gps
+  odom0_config: [true,  true,  true,
+                 false, false, false,
+                 false, false, false,
+                 false, false, false,
+                 false, false, false]
+  odom0_differential: false
+  odom0_queue_size: 10
+  process_noise_covariance: [  1.0,  0,    0,    0,    0,    0,    0,     0,     0,     0,    0,    0,    0,    0,      0,
+                               0,    1.0,  0,    0,    0,    0,    0,     0,     0,     0,    0,    0,    0,    0,      0,
+                               0,    0,    10.0, 0,    0,    0,    0,     0,     0,     0,    0,    0,    0,    0,      0,
+                               0,    0,    0,    0.03, 0,    0,    0,     0,     0,     0,    0,    0,    0,    0,      0,
+                               0,    0,    0,    0,    0.03, 0,    0,     0,     0,     0,    0,    0,    0,    0,      0,
+                               0,    0,    0,    0,    0,    0.1,  0,     0,     0,     0,    0,    0,    0,    0,      0,
+                               0,    0,    0,    0,    0,    0,    0.25,  0,     0,     0,    0,    0,    0,    0,      0,
+                               0,    0,    0,    0,    0,    0,    0,     0.25,  0,     0,    0,    0,    0,    0,      0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0.04,  0,    0,    0,    0,    0,      0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,     0.01, 0,    0,    0,    0,      0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,     0,    0.01, 0,    0,    0,      0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,     0,    0,    0.5,  0,    0,      0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,     0,    0,    0,    0.01, 0,      0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,     0,    0,    0,    0,    0.01,   0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,     0,    0,    0,    0,    0,      0.015]
